@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>لعبة صياد السمك المطور - Pi Fisherman</title>
-    <!-- استدعاء مكتبة Pi SDK الرسمية -->
-    <script src="https://sdk.minepi.com/pi-sdk.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body {
@@ -41,13 +39,13 @@
             left: 50%;
             transform: translateX(-50%);
             display: flex;
-            gap: 6px;
+            gap: 12px;
             background: rgba(0, 0, 0, 0.75);
-            padding: 8px 12px;
+            padding: 8px 15px;
             border-radius: 25px;
             color: #fff;
             font-weight: bold;
-            font-size: 11px;
+            font-size: 14px;
             border: 1px solid rgba(255,255,255,0.3);
             z-index: 10;
             white-space: nowrap;
@@ -59,36 +57,16 @@
 
     <div id="gameContainer">
         <div class="ui-panel">
-            <div>اللاعب: <span id="usernameDisplay" class="pi-badge">زائر</span></div>
+            <div>النقاط: <span id="currentPi" class="pi-badge">0</span> pi</div>
             <div>|</div>
-            <div>النقاط: <span id="currentPi" class="pi-badge">0</span></div>
+            <div>المحفظة: <span id="walletPi" class="pi-badge">0</span> pi</div>
             <div>|</div>
-            <div>المحفظة: <span id="walletPi" class="pi-badge">0</span></div>
-            <div>|</div>
-            <div><span id="statusText">نهار ☀️</span></div>
+            <div>الحالة: <span id="statusText">نهار ☀️</span></div>
         </div>
         <canvas id="gameCanvas" width="400" height="700"></canvas>
     </div>
 
     <script>
-        // تهيئة Pi SDK بأمان
-        try {
-            Pi.init({ version: "2.0", sandbox: true });
-            const scopes = ['username', 'payments'];
-            
-            Pi.authenticate(scopes, function(payment) {
-                console.log("معاملة غير مكتملة:", payment);
-            }).then(function(auth) {
-                if (auth && auth.user && auth.user.username) {
-                    document.getElementById("usernameDisplay").innerText = auth.user.username;
-                }
-            }).catch(function(error) {
-                console.error("خطأ المصادقة:", error);
-            });
-        } catch (e) {
-            console.log("يعمل خارج بيئة Pi SDK");
-        }
-
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
 
@@ -96,25 +74,29 @@
         let walletPi = 0;
         let isNight = false;
 
+        // إعدادات الصياد والسنارة
         const fisher = { x: 90, y: 380 };
         const rodTip = { x: 120, y: 340 };
         let hook = { x: 120, y: 340, targetX: 120, targetY: 340, state: 'idle', caughtFish: null };
 
+        // المراكب
         const boats = [
             { x: 250, y: 320, speed: 0.4, size: 50 },
             { x: 80, y: 290, speed: -0.3, size: 40 }
         ];
 
+        // النجوم
         const stars = [];
         for(let i=0; i<40; i++) {
             stars.push({ x: Math.random() * canvas.width, y: Math.random() * 250, size: Math.random() * 2 + 1 });
         }
 
+        // الأسماك
         const fishTypes = [
-            { name: "حوت أبيض", color: "#f8f9fa", width: 45, height: 22, reward: 100, speed: 1.0 },
-            { name: "قرش أحمر", color: "#ff6b6b", width: 35, height: 18, reward: 50, speed: 1.8 },
-            { name: "سمكة عادية", color: "#48dbfb", width: 25, height: 13, reward: 20, speed: 2.2 },
-            { name: "سمكة صغيرة", color: "#feca57", width: 18, height: 10, reward: 10, speed: 2.8 }
+            { name: "حوت أبيض", color: "#f8f9fa", width: 45, height: 22, reward: 100, speed: 1.0, type: 'whale' },
+            { name: "قرش أحمر", color: "#ff6b6b", width: 35, height: 18, reward: 50, speed: 1.8, type: 'shark' },
+            { name: "سمكة عادية", color: "#48dbfb", width: 25, height: 13, reward: 20, speed: 2.2, type: 'normal' },
+            { name: "سمكة صغيرة", color: "#feca57", width: 18, height: 10, reward: 10, speed: 2.8, type: 'small' }
         ];
 
         let fishes = [];
@@ -133,13 +115,14 @@
             }
         }
 
+        // التحكم باللمس أو النقر لإلقاء السنارة
         canvas.addEventListener("click", (e) => {
             if (hook.state !== 'idle') return;
             const rect = canvas.getBoundingClientRect();
             const clickX = (e.clientX - rect.left) * (canvas.width / rect.width);
             const clickY = (e.clientY - rect.top) * (canvas.height / rect.height);
 
-            if (clickY > 400) {
+            if (clickY > 400) { // النقر داخل الماء
                 hook.targetX = clickX;
                 hook.targetY = clickY;
                 hook.state = 'casting';
@@ -159,16 +142,19 @@
         }
 
         function update() {
+            // تحريك المراكب
             boats.forEach(b => {
                 b.x += b.speed;
                 if (b.x > canvas.width + 60) b.x = -60;
                 if (b.x < -60) b.x = canvas.width + 60;
             });
 
+            // توليد وحركة الأسماك
             spawnFish();
             fishes.forEach((f, idx) => {
                 if (!f.isHooked) {
                     f.x += f.speed * f.dir;
+                    // فحص الاصطدام بالخطاف
                     if (hook.state === 'casting' || hook.state === 'reeling') {
                         let dist = Math.hypot(f.x - hook.x, f.y - hook.y);
                         if (dist < 25) {
@@ -187,6 +173,7 @@
                 }
             });
 
+            // حركة السنارة
             if (hook.state === 'casting') {
                 let dx = hook.targetX - hook.x;
                 let dy = hook.targetY - hook.y;
@@ -224,12 +211,14 @@
             if (isNight) {
                 ctx.fillStyle = "#050b14";
                 ctx.fillRect(0, 0, canvas.width, 350);
+                // النجوم والقمر
                 ctx.fillStyle = "#fff";
                 stars.forEach(s => ctx.fillRect(s.x, s.y, s.size, s.size));
                 ctx.beginPath(); ctx.arc(330, 70, 25, 0, Math.PI*2); ctx.fillStyle = "#f1f2f6"; ctx.fill();
             } else {
                 ctx.fillStyle = "#70a1ff";
                 ctx.fillRect(0, 0, canvas.width, 350);
+                // الشمس
                 ctx.beginPath(); ctx.arc(330, 70, 30, 0, Math.PI*2); ctx.fillStyle = "#ffeaa7"; ctx.fill();
             }
 
@@ -243,6 +232,7 @@
                 ctx.lineTo(b.x + 10, b.y + 15);
                 ctx.closePath();
                 ctx.fill();
+                // الشراع
                 ctx.fillStyle = "#fff";
                 ctx.beginPath();
                 ctx.moveTo(b.x + b.size/2, b.y);
@@ -262,17 +252,21 @@
 
             // 5. الكرسي والسلة
             ctx.fillStyle = "#8b4513";
-            ctx.fillRect(110, 315, 18, 18);
+            ctx.fillRect(110, 315, 18, 18); // الكرسي
             ctx.fillStyle = "#d35400";
-            ctx.beginPath(); ctx.arc(60, 325, 12, 0, Math.PI); ctx.fill();
+            ctx.beginPath(); ctx.arc(60, 325, 12, 0, Math.PI); ctx.fill(); // السلة
 
-            // 6. الصياد
+            // 6. الصياد (شورت برتقالي، صديري أخضر، كاب أحمر)
+            // الرأس
             ctx.fillStyle = "#ffcccc";
             ctx.beginPath(); ctx.arc(fisher.x, fisher.y - 35, 9, 0, Math.PI*2); ctx.fill();
+            // الكاب
             ctx.fillStyle = "#e74c3c";
             ctx.fillRect(fisher.x - 10, fisher.y - 45, 18, 6);
+            // الصديري الأخضر
             ctx.fillStyle = "#27ae60";
             ctx.fillRect(fisher.x - 7, fisher.y - 26, 14, 16);
+            // الشورت البرتقالي
             ctx.fillStyle = "#e67e22";
             ctx.fillRect(fisher.x - 7, fisher.y - 10, 14, 12);
 
@@ -283,6 +277,7 @@
             ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 1.5;
             ctx.beginPath(); ctx.moveTo(rodTip.x, rodTip.y); ctx.lineTo(hook.x, hook.y); ctx.stroke();
 
+            // الخطاف
             ctx.fillStyle = "#fff";
             ctx.beginPath(); ctx.arc(hook.x, hook.y, 4, 0, Math.PI*2); ctx.fill();
 
@@ -297,6 +292,7 @@
                 ctx.beginPath();
                 ctx.ellipse(0, 0, f.width/2, f.height/2, 0, 0, Math.PI*2);
                 ctx.fill();
+                // الذيل
                 ctx.beginPath();
                 ctx.moveTo(-f.width/2, 0);
                 ctx.lineTo(-f.width/2 - 8, -6);
