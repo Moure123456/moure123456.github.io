@@ -41,13 +41,13 @@
             left: 50%;
             transform: translateX(-50%);
             display: flex;
-            gap: 8px;
+            gap: 6px;
             background: rgba(0, 0, 0, 0.75);
             padding: 8px 12px;
             border-radius: 25px;
             color: #fff;
             font-weight: bold;
-            font-size: 12px;
+            font-size: 11px;
             border: 1px solid rgba(255,255,255,0.3);
             z-index: 10;
             white-space: nowrap;
@@ -71,23 +71,23 @@
     </div>
 
     <script>
-        // تهيئة Pi SDK
-        Pi.init({ version: "2.0", sandbox: true });
-
-        const scopes = ['username', 'payments'];
-
-        function onIncompletePaymentFound(payment) {
-            console.log("وجد معاملة غير مكتملة:", payment);
+        // تهيئة Pi SDK بأمان
+        try {
+            Pi.init({ version: "2.0", sandbox: true });
+            const scopes = ['username', 'payments'];
+            
+            Pi.authenticate(scopes, function(payment) {
+                console.log("معاملة غير مكتملة:", payment);
+            }).then(function(auth) {
+                if (auth && auth.user && auth.user.username) {
+                    document.getElementById("usernameDisplay").innerText = auth.user.username;
+                }
+            }).catch(function(error) {
+                console.error("خطأ المصادقة:", error);
+            });
+        } catch (e) {
+            console.log("يعمل خارج بيئة Pi SDK");
         }
-
-        // تسجيل الدخول التلقائي عند فتح اللعبة عبر Pi Browser
-        Pi.authenticate(scopes, onIncompletePaymentFound).then(function(auth) {
-            console.log("تم تسجيل الدخول بنجاح للمستخدم: " + auth.user.username);
-            document.getElementById("usernameDisplay").innerText = auth.user.username;
-        }).catch(function(error) {
-            console.error("فشل تسجيل الدخول:", error);
-            document.getElementById("usernameDisplay").innerText = "خطأ بالمحفظة";
-        });
 
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
@@ -96,21 +96,225 @@
         let walletPi = 0;
         let isNight = false;
 
-        // إعدادات الصياد والسنارة
         const fisher = { x: 90, y: 380 };
         const rodTip = { x: 120, y: 340 };
         let hook = { x: 120, y: 340, targetX: 120, targetY: 340, state: 'idle', caughtFish: null };
 
-        // المراكب
         const boats = [
             { x: 250, y: 320, speed: 0.4, size: 50 },
             { x: 80, y: 290, speed: -0.3, size: 40 }
         ];
 
-        // النجوم
         const stars = [];
         for(let i=0; i<40; i++) {
             stars.push({ x: Math.random() * canvas.width, y: Math.random() * 250, size: Math.random() * 2 + 1 });
         }
 
-        // الأسماك
+        const fishTypes = [
+            { name: "حوت أبيض", color: "#f8f9fa", width: 45, height: 22, reward: 100, speed: 1.0 },
+            { name: "قرش أحمر", color: "#ff6b6b", width: 35, height: 18, reward: 50, speed: 1.8 },
+            { name: "سمكة عادية", color: "#48dbfb", width: 25, height: 13, reward: 20, speed: 2.2 },
+            { name: "سمكة صغيرة", color: "#feca57", width: 18, height: 10, reward: 10, speed: 2.8 }
+        ];
+
+        let fishes = [];
+
+        function spawnFish() {
+            if (fishes.length < 5 && Math.random() < 0.03) {
+                const template = fishTypes[Math.floor(Math.random() * fishTypes.length)];
+                const dir = Math.random() < 0.5 ? 1 : -1;
+                fishes.push({
+                    ...template,
+                    x: dir === 1 ? -60 : canvas.width + 60,
+                    y: 440 + Math.random() * 220,
+                    dir: dir,
+                    isHooked: false
+                });
+            }
+        }
+
+        canvas.addEventListener("click", (e) => {
+            if (hook.state !== 'idle') return;
+            const rect = canvas.getBoundingClientRect();
+            const clickX = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const clickY = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+            if (clickY > 400) {
+                hook.targetX = clickX;
+                hook.targetY = clickY;
+                hook.state = 'casting';
+            }
+        });
+
+        function addPi(amount) {
+            currentPi += amount;
+            if (currentPi >= 200) {
+                walletPi += currentPi;
+                currentPi = 0;
+                isNight = true;
+                document.getElementById("statusText").innerText = "ليل 🌙";
+            }
+            document.getElementById("currentPi").innerText = currentPi;
+            document.getElementById("walletPi").innerText = walletPi;
+        }
+
+        function update() {
+            boats.forEach(b => {
+                b.x += b.speed;
+                if (b.x > canvas.width + 60) b.x = -60;
+                if (b.x < -60) b.x = canvas.width + 60;
+            });
+
+            spawnFish();
+            fishes.forEach((f, idx) => {
+                if (!f.isHooked) {
+                    f.x += f.speed * f.dir;
+                    if (hook.state === 'casting' || hook.state === 'reeling') {
+                        let dist = Math.hypot(f.x - hook.x, f.y - hook.y);
+                        if (dist < 25) {
+                            f.isHooked = true;
+                            hook.caughtFish = f;
+                            hook.state = 'reeling';
+                        }
+                    }
+                } else {
+                    f.x = hook.x;
+                    f.y = hook.y;
+                }
+
+                if (f.x > canvas.width + 100 || f.x < -100) {
+                    fishes.splice(idx, 1);
+                }
+            });
+
+            if (hook.state === 'casting') {
+                let dx = hook.targetX - hook.x;
+                let dy = hook.targetY - hook.y;
+                let dist = Math.hypot(dx, dy);
+                if (dist < 5) {
+                    hook.state = 'reeling';
+                } else {
+                    hook.x += (dx / dist) * 6;
+                    hook.y += (dy / dist) * 6;
+                }
+            } else if (hook.state === 'reeling') {
+                let dx = rodTip.x - hook.x;
+                let dy = rodTip.y - hook.y;
+                let dist = Math.hypot(dx, dy);
+                if (dist < 10) {
+                    if (hook.caughtFish) {
+                        addPi(hook.caughtFish.reward);
+                        fishes = fishes.filter(item => item !== hook.caughtFish);
+                        hook.caughtFish = null;
+                    }
+                    hook.x = rodTip.x;
+                    hook.y = rodTip.y;
+                    hook.state = 'idle';
+                } else {
+                    hook.x += (dx / dist) * 7;
+                    hook.y += (dy / dist) * 7;
+                }
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. السماء
+            if (isNight) {
+                ctx.fillStyle = "#050b14";
+                ctx.fillRect(0, 0, canvas.width, 350);
+                ctx.fillStyle = "#fff";
+                stars.forEach(s => ctx.fillRect(s.x, s.y, s.size, s.size));
+                ctx.beginPath(); ctx.arc(330, 70, 25, 0, Math.PI*2); ctx.fillStyle = "#f1f2f6"; ctx.fill();
+            } else {
+                ctx.fillStyle = "#70a1ff";
+                ctx.fillRect(0, 0, canvas.width, 350);
+                ctx.beginPath(); ctx.arc(330, 70, 30, 0, Math.PI*2); ctx.fillStyle = "#ffeaa7"; ctx.fill();
+            }
+
+            // 2. المراكب
+            boats.forEach(b => {
+                ctx.fillStyle = "#a0522d";
+                ctx.beginPath();
+                ctx.moveTo(b.x, b.y);
+                ctx.lineTo(b.x + b.size, b.y);
+                ctx.lineTo(b.x + b.size - 10, b.y + 15);
+                ctx.lineTo(b.x + 10, b.y + 15);
+                ctx.closePath();
+                ctx.fill();
+                ctx.fillStyle = "#fff";
+                ctx.beginPath();
+                ctx.moveTo(b.x + b.size/2, b.y);
+                ctx.lineTo(b.x + b.size/2, b.y - 25);
+                ctx.lineTo(b.x + b.size/2 + 15, b.y - 10);
+                ctx.closePath();
+                ctx.fill();
+            });
+
+            // 3. البحر
+            ctx.fillStyle = isNight ? "#192a56" : "#1e90ff";
+            ctx.fillRect(0, 350, canvas.width, 350);
+
+            // 4. الشاطئ
+            ctx.fillStyle = "#eccc68";
+            ctx.fillRect(0, 330, canvas.width, 40);
+
+            // 5. الكرسي والسلة
+            ctx.fillStyle = "#8b4513";
+            ctx.fillRect(110, 315, 18, 18);
+            ctx.fillStyle = "#d35400";
+            ctx.beginPath(); ctx.arc(60, 325, 12, 0, Math.PI); ctx.fill();
+
+            // 6. الصياد
+            ctx.fillStyle = "#ffcccc";
+            ctx.beginPath(); ctx.arc(fisher.x, fisher.y - 35, 9, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "#e74c3c";
+            ctx.fillRect(fisher.x - 10, fisher.y - 45, 18, 6);
+            ctx.fillStyle = "#27ae60";
+            ctx.fillRect(fisher.x - 7, fisher.y - 26, 14, 16);
+            ctx.fillStyle = "#e67e22";
+            ctx.fillRect(fisher.x - 7, fisher.y - 10, 14, 12);
+
+            // 7. السنارة والخيط
+            ctx.strokeStyle = "#c0392b"; ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.moveTo(fisher.x, fisher.y - 20); ctx.lineTo(rodTip.x, rodTip.y); ctx.stroke();
+
+            ctx.strokeStyle = "rgba(255,255,255,0.7)"; ctx.lineWidth = 1.5;
+            ctx.beginPath(); ctx.moveTo(rodTip.x, rodTip.y); ctx.lineTo(hook.x, hook.y); ctx.stroke();
+
+            ctx.fillStyle = "#fff";
+            ctx.beginPath(); ctx.arc(hook.x, hook.y, 4, 0, Math.PI*2); ctx.fill();
+
+            // 8. الأسماك
+            fishes.forEach(f => {
+                ctx.save();
+                ctx.translate(f.x, f.y);
+                if (f.dir === -1 && !f.isHooked) ctx.scale(-1, 1);
+                if (f.isHooked) ctx.rotate(Math.PI/2);
+
+                ctx.fillStyle = f.color;
+                ctx.beginPath();
+                ctx.ellipse(0, 0, f.width/2, f.height/2, 0, 0, Math.PI*2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.moveTo(-f.width/2, 0);
+                ctx.lineTo(-f.width/2 - 8, -6);
+                ctx.lineTo(-f.width/2 - 8, 6);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.restore();
+            });
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+</body>
+</html>
