@@ -1,1 +1,8 @@
-
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.mouriapps.francaisbac",
+    "sha256_cert_fingerprints": ["D4:1D:B2:0B:26:4B:E7:E6:B9:18:BE:B3:21:12:04:5C:C0:37:23:C2:A1:84:AE:04:4F:CF:D7:A9:BD:AE:CA:E1"]
+  }
+}]
